@@ -63,7 +63,7 @@ class MainActivity : Activity() {
     private fun row(s: String, ok: Boolean, b: String = "Grant", f: () -> Unit): View = LinearLayout(this).apply {
         gravity = Gravity.CENTER_VERTICAL
         addView(t(s, 14f), LinearLayout.LayoutParams(0, -2, 1f))
-        addView(if (ok) t("✓ on", 13f, Color.parseColor("#4ADE80"), true) else btn(b, f))
+        addView(if (ok) t("✓ on", 13f, Color.parseColor("#4ADE80"), true) else btn(b, false, f))
     }
 
     private fun card(title: String, vararg v: View) {
@@ -233,7 +233,7 @@ class MainActivity : Activity() {
 
         val sg = ArrayList<View>()
         fun tip(title: String, body: String, label: String? = null, f: () -> Unit = {}) {
-            sg.add(t(title, 14f, Color.WHITE, true)); sg.add(t(body, 12f, Color.GRAY)); if (label != null) sg.add(btn(label, f))
+            sg.add(t(title, 14f, Color.WHITE, true)); sg.add(t(body, 12f, Color.GRAY)); if (label != null) sg.add(btn(label, false, f))
         }
         val manual = Settings.System.getInt(r, Settings.System.SCREEN_BRIGHTNESS_MODE, 0) == 0
         if (br > 150 && manual) tip("Screen is very bright", "The display is usually the biggest drain. 35% is readable indoors.", "Set 35%") {
