@@ -16,6 +16,6 @@ jobs:
         env: { KS_B64: "${{ secrets.KS_B64 }}" }
       - name: Build signed APK
         run: gradle assembleRelease --no-daemon && cp app/build/outputs/apk/release/app-release.apk voltforge.apk
-        env: { KS_FILE: "${{ runner.temp }}/ks.jks", KS_PASS: "${{ secrets.KS_PASS }}" }
+        env: { KS_FILE: "${{ runner.temp }}/ks.jks", KS_PASS: "${{ secrets.KS_PASS }}", VC: "${{ github.run_number }}" }
       - uses: softprops/action-gh-release@v2
         with: { tag_name: "v${{ github.run_number }}", files: voltforge.apk }

@@ -39,14 +39,21 @@ class MainActivity : Activity() {
         Opt.seedKeep(this); Opt.schedule(this)
     }
 
-    override fun onResume() { super.onResume(); draw() }
+    override fun onResume() {
+        super.onResume(); draw()
+        if (System.currentTimeMillis() - Opt.prefs(this).getLong("chk", 0L) > 21600000L) chk(true)
+    }
 
     private fun t(s: String, sz: Float = 14f, c: Int = Color.WHITE, b: Boolean = false) = TextView(this).apply {
         text = s; textSize = sz; setTextColor(c); setPadding(0, dp(3), 0, dp(3))
         if (b) setTypeface(typeface, Typeface.BOLD)
     }
 
-    private fun btn(s: String, f: () -> Unit) = Button(this).apply { text = s; setAllCaps(false); setOnClickListener { f() } }
+    private fun btn(s: String, on: Boolean = false, f: () -> Unit) = Button(this).apply {
+        text = s; setAllCaps(false); textSize = 13f; setTextColor(Color.parseColor(if (on) "#06222B" else "#FFFFFF")); setPadding(dp(14), dp(10), dp(14), dp(10))
+        val g = GradientDrawable(); g.setColor(Color.parseColor(if (on) "#7DD3FC" else "#243241")); g.cornerRadius = dp(22).toFloat(); background = g
+        setOnClickListener { f() }
+    }
 
     private fun sw(s: String, on: Boolean, f: (Boolean) -> Unit) = Switch(this).apply {
         text = s; setTextColor(Color.WHITE); isChecked = on; setPadding(0, dp(6), 0, dp(6))
@@ -61,10 +68,10 @@ class MainActivity : Activity() {
 
     private fun card(title: String, vararg v: View) {
         val l = LinearLayout(this)
-        l.orientation = LinearLayout.VERTICAL; l.setPadding(dp(16), dp(12), dp(16), dp(12))
-        val bg = GradientDrawable(); bg.setColor(Color.parseColor("#171C24")); bg.cornerRadius = dp(16).toFloat(); l.background = bg
+        l.orientation = LinearLayout.VERTICAL; l.setPadding(dp(18), dp(14), dp(18), dp(14))
+        val bg = GradientDrawable(); bg.setColor(Color.parseColor("#151A22")); bg.setStroke(dp(1), Color.parseColor("#222B36")); bg.cornerRadius = dp(22).toFloat(); l.background = bg
         l.addView(t(title, 13f, Color.parseColor("#7DD3FC"), true))
-        v.forEach { l.addView(it) }
+        v.forEach { x -> val q = LinearLayout.LayoutParams(-1, -2); if (x is Button) q.setMargins(0, dp(6), 0, 0); l.addView(x, q) }
         val lp = LinearLayout.LayoutParams(-1, -2); lp.setMargins(0, 0, 0, dp(12)); box.addView(l, lp)
     }
 
@@ -94,6 +101,72 @@ class MainActivity : Activity() {
             .setPositiveButton("Save") { _, _ -> Opt.prefs(this).edit().putStringSet("keep", keep).apply() }.show()
     }
 
+    private fun rowBar(l: String, h: Double, mx: Double): View {
+        val v = LinearLayout(this); v.orientation = LinearLayout.VERTICAL; v.setPadding(0, dp(6), 0, dp(6))
+        val top = LinearLayout(this)
+        top.addView(t(l, 13f, Color.LTGRAY), LinearLayout.LayoutParams(0, -2, 1f)); top.addView(t(Hl.fmt(h), 14f, Color.WHITE, true))
+        val bar = LinearLayout(this); val f = View(this); val e = View(this)
+        f.setBackgroundColor(Color.parseColor("#7DD3FC")); e.setBackgroundColor(Color.parseColor("#232B36"))
+        val fr = (h / mx).toFloat().coerceIn(0.03f, 1f)
+        bar.addView(f, LinearLayout.LayoutParams(0, dp(5), fr)); bar.addView(e, LinearLayout.LayoutParams(0, dp(5), 1f - fr))
+        v.addView(top); v.addView(bar); return v
+    }
+
+    private fun hero(lvl: Int, chg: Boolean, temp: Double, ma: Int, rt: Double?) {
+        val p = Opt.prefs(this); val dsg = p.getInt("design", 3000)
+        val h = Hl.read(this, dsg)
+        val a = Ring(this); val b = Ring(this)
+        a.set(lvl.toFloat(), "$lvl%", if (chg) "charging" else "charge", Color.parseColor(if (lvl > 50) "#4ADE80" else if (lvl > 20) "#FBBF24" else "#F87171"))
+        if (h.pct >= 0) { p.edit().putInt("hp", h.pct).apply(); b.set(h.pct.toFloat(), "${h.pct}%", "health", Color.parseColor(Hl.color(h.pct))) }
+        else b.set(0f, "--", "health", Color.GRAY)
+        val rg = LinearLayout(this)
+        rg.addView(a, LinearLayout.LayoutParams(0, -2, 1f)); rg.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
+        val v = ArrayList<View>(); v.add(rg)
+        if (h.pct >= 0) v.add(t("${Hl.verdict(h.pct)} · about ${h.full} of ${h.des} mAh (${h.src})", 14f, Color.WHITE, true))
+        else v.add(t("This phone doesn't report charge data, so estimates use ${h.des} mAh.", 13f, Color.LTGRAY))
+        if (h.cyc > 0) v.add(t("Charge cycles: ${h.cyc}", 13f, Color.LTGRAY))
+        v.add(t("${temp}°C · $ma mA now" + (if (rt != null) " · average drain %.1f%%/h".format(rt) else ""), 13f, Color.LTGRAY))
+        if (h.pct in 0..79) v.add(t("Worn cell: voltage sags at low charge, which can shut the phone off suddenly. Auto Optimize starts saving power earlier. A new battery is the real fix.", 12f, Color.parseColor("#FBBF24")))
+        if (h.src != "fuel gauge") {
+            v.add(t("Estimated from the charge counter, most accurate between 20% and 80%. Some phones report ideal values.", 11f, Color.GRAY))
+            v.add(btn("Design capacity: ${h.des} mAh (tap to change)") { val o = listOf(3000, 3500, 4000, 5000); p.edit().putInt("design", o[(o.indexOf(dsg) + 1) % 4]).putString("hest", "").apply(); draw() })
+        }
+        card("BATTERY", *v.toTypedArray())
+        val sc = Hl.scen(h, ma, chg); val mx = sc.maxOf { it.second }
+        card("TIME LEFT ON THIS CHARGE", *(sc.map { rowBar(it.first, it.second, mx) } + t("Estimates use typical power draw for a phone like yours and your measured capacity. Real use varies.", 11f, Color.GRAY)).toTypedArray())
+    }
+
+    private var upBusy = false
+    private fun canInst() = Build.VERSION.SDK_INT < 26 || packageManager.canRequestPackageInstalls()
+
+    private fun chk(silent: Boolean) {
+        Upd.check(this) { code, url, err ->
+            val e = Opt.prefs(this).edit().putLong("chk", System.currentTimeMillis())
+            if (err == null) e.putInt("newv", code).putString("newurl", url)
+            e.apply()
+            if (!silent) toast(err ?: (if (code > Upd.cur(this)) "Update available" else "You're on the latest version"))
+            draw()
+        }
+    }
+
+    private fun updCard() {
+        val p = Opt.prefs(this); val cur = Upd.cur(this); val nv = p.getInt("newv", 0); val url = p.getString("newurl", null)
+        val v = ArrayList<View>()
+        val tv = t("Installed: version ${Upd.name(this)}" + (if (nv > cur) "\nNew version available (build $nv)" else ""), 13f, Color.parseColor(if (nv > cur) "#7DD3FC" else "#D3D3D3"))
+        v.add(tv)
+        if (nv > cur && url != null) v.add(btn(if (upBusy) "Updating..." else "Update now", true) {
+            if (upBusy) return@btn
+            if (!canInst()) { toast("Allow installs from VoltForge, then tap Update now again"); go("android.settings.MANAGE_UNKNOWN_APP_SOURCES", true); return@btn }
+            upBusy = true
+            Upd.install(this, url, { tv.text = "Downloading $it%" }, { e ->
+                upBusy = false
+                if (e != null) { toast(e); draw() } else { tv.text = "Downloaded. Confirm the install on the next screen." }
+            })
+        })
+        v.add(btn("Check for updates") { chk(false) })
+        card("UPDATES", *v.toTypedArray())
+    }
+
     private fun draw() {
         box.removeAllViews()
         box.addView(t("VoltForge", 30f, Color.WHITE, true))
@@ -107,10 +180,16 @@ class MainActivity : Activity() {
         var ma = Math.abs((getSystemService(BATTERY_SERVICE) as BatteryManager).getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW))
         if (ma > 20000) ma /= 1000
         val rt = Opt.rate(this)
-        card("BATTERY",
-            t("$lvl%" + (if (Opt.charging(bi)) " ⚡" else ""), 40f, Color.WHITE, true),
-            t("${temp}°C · $health · ${bi?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0)} mV · $ma mA", 13f, Color.LTGRAY),
-            t(if (rt != null) "Avg drain %.1f%%/h · about %.1f h left".format(rt, lvl / rt) else "Drain estimate appears after about an hour of use", 13f, Color.LTGRAY))
+        hero(lvl, Opt.charging(bi), temp, ma, rt)
+        updCard()
+        card("AUTO-OPTIMIZE",
+            sw("Auto Optimize", p.getBoolean("auto", false)) { p.edit().putBoolean("auto", it).apply() },
+            t("Runs about every 15 min. Screen off: cleans background apps. At ${p.getInt("th", 20) + 15}% or less: Saver. At ${p.getInt("th", 20)}% or less: Extreme. Back to normal when charging." + (if (p.getInt("hp", 100) < 80) " Your battery is worn, so these levels are raised by 10%." else "") + (p.getString("last", null)?.let { "\nLast action: $it" } ?: ""), 12f, Color.GRAY),
+            btn("Extreme at ${p.getInt("th", 20)}% (tap to change)") {
+                val n = listOf(10, 15, 20, 30); p.edit().putInt("th", n[(n.indexOf(p.getInt("th", 20)) + 1) % 4]).apply(); draw()
+            },
+            btn("Protected apps") { keepDialog() },
+            btn("Clean background apps now") { toast("Cleaned ${Opt.clean(this)} apps") })
 
         val w = Opt.canWrite(this); val u = Opt.canUsage(this); val dpm = Opt.canDeep(this)
         card("POWER-UPS",
@@ -121,17 +200,8 @@ class MainActivity : Activity() {
                 "Deep mode needs one grant from a computer: adb shell pm grant $packageName android.permission.WRITE_SECURE_SETTINGS", 11f, Color.GRAY))
 
         val pr = LinearLayout(this)
-        Opt.profs.forEach { f -> pr.addView(btn(f.name) { toast(Opt.apply(this, f)); draw() }, LinearLayout.LayoutParams(0, -2, 1f)) }
+        Opt.profs.forEach { f -> val lp = LinearLayout.LayoutParams(0, -2, 1f); lp.setMargins(dp(3), dp(6), dp(3), 0); pr.addView(btn(f.name, p.getString("prof", "") == f.name) { toast(Opt.apply(this, f)); draw() }, lp) }
         card("PROFILES", t("Saver and Extreme lower brightness, shorten screen timeout, stop sync and clean background apps. Restore puts everything back.", 12f, Color.GRAY), pr)
-
-        card("AUTO-OPTIMIZE",
-            sw("Run automatically (about every 15 min)", p.getBoolean("auto", false)) { p.edit().putBoolean("auto", it).apply() },
-            t("Screen off: background apps are cleaned. At or below ${p.getInt("th", 20)}%: Extreme profile, restored when charging.", 12f, Color.GRAY),
-            btn("Low battery threshold: ${p.getInt("th", 20)}%") {
-                val n = listOf(10, 15, 20, 30); p.edit().putInt("th", n[(n.indexOf(p.getInt("th", 20)) + 1) % 4]).apply(); draw()
-            },
-            btn("Protected apps") { keepDialog() },
-            btn("Clean background apps now") { toast("Cleaned ${Opt.clean(this)} apps") })
 
         val br = Settings.System.getInt(r, Settings.System.SCREEN_BRIGHTNESS, 128)
         val sb = SeekBar(this)

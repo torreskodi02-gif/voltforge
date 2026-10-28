@@ -98,6 +98,7 @@ object Opt {
     }
 
     fun apply(c: Context, p: Prof): String {
+        prefs(c).edit().putString("prof", p.name).apply()
         if (p.lvl < 0) { restore(c); return "Original settings restored" }
         snap(c)
         val w = canWrite(c)
@@ -163,12 +164,12 @@ class OptJob : JobService() {
             val b = Opt.batt(c)
             val lvl = b?.getIntExtra(BatteryManager.EXTRA_LEVEL, 100) ?: 100
             val chg = Opt.charging(b)
-            if (!(c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive) Opt.clean(c)
-            if (!chg && lvl <= pr.getInt("th", 20) && !pr.getBoolean("low", false)) {
-                Opt.apply(c, Opt.profs[2]); pr.edit().putBoolean("low", true).apply()
-            } else if (chg && pr.getBoolean("low", false)) {
-                Opt.apply(c, Opt.profs[0]); pr.edit().putBoolean("low", false).apply()
-            }
+            var note = ""
+            if (!(c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive) note = "Cleaned ${Opt.clean(c)} apps"
+            val th = pr.getInt("th", 20) + (if (pr.getInt("hp", 100) < 80) 10 else 0)
+            val want = if (chg) 0 else if (lvl <= th) 2 else if (lvl <= th + 15) 1 else 0
+            if (want != pr.getInt("stage", 0)) { Opt.apply(c, Opt.profs[want]); pr.edit().putInt("stage", want).apply(); note = Opt.profs[want].name + " at $lvl%" }
+            if (note.isNotEmpty()) pr.edit().putString("last", note).putLong("lastT", System.currentTimeMillis()).apply()
         }
         return false
     }

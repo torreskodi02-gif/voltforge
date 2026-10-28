@@ -1,8 +1,9 @@
 plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
+def vc = System.getenv('VC') ?: '3'
 android {
     namespace 'app.voltforge'
     compileSdk 34
-    defaultConfig { applicationId 'app.voltforge'; minSdk 23; targetSdk 28; versionCode 1; versionName '1.0' }
+    defaultConfig { applicationId 'app.voltforge'; minSdk 23; targetSdk 28; versionCode vc.toInteger(); versionName "2.$vc" }
     signingConfigs {
         release {
             def f = System.getenv('KS_FILE')
