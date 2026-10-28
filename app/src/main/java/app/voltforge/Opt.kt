@@ -80,13 +80,13 @@ object Opt {
         try { val a = BluetoothAdapter.getDefaultAdapter() ?: return; if (on) a.enable() else a.disable() } catch (e: Exception) {}
     }
 
-    fun clean(c: Context): Int {
+    fun clean(c: Context, lg: (String) -> Unit = {}): Int {
         val am = c.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val keep = prefs(c).getStringSet("keep", emptySet())!! + c.packageName
         var n = 0
         for (a in c.packageManager.getInstalledApplications(0)) {
-            if ((a.flags and ApplicationInfo.FLAG_SYSTEM) != 0 || a.packageName in keep) continue
-            am.killBackgroundProcesses(a.packageName); n++
+            if ((a.flags and ApplicationInfo.FLAG_SYSTEM) != 0 || a.packageName in keep || a.packageName.startsWith("com.termux")) continue
+            am.killBackgroundProcesses(a.packageName); n++; lg("  stop " + c.packageManager.getApplicationLabel(a))
         }
         return n
     }
@@ -97,27 +97,32 @@ object Opt {
         p.edit().putStringSet("keep", c.packageManager.getInstalledApplications(0).map { it.packageName }.filter { rx.containsMatchIn(it) }.toSet()).apply()
     }
 
-    fun apply(c: Context, p: Prof): String {
+    fun apply(c: Context, p: Prof, lg: (String) -> Unit = {}): String {
         prefs(c).edit().putString("prof", p.name).apply()
-        if (p.lvl < 0) { restore(c); return "Original settings restored" }
-        snap(c)
+        if (p.lvl < 0) { lg("> restoring saved settings"); restore(c); lg("[ok] original settings restored"); return "Original settings restored" }
+        snap(c); lg("> snapshot saved, undo is available")
         val w = canWrite(c)
         if (w) {
+            lg("> display: brightness ${p.bright}%, screen timeout ${p.timeout / 1000}s")
             setSys(c, Settings.System.SCREEN_BRIGHTNESS_MODE, 0)
             setSys(c, Settings.System.SCREEN_BRIGHTNESS, maxOf(1, p.bright * 255 / 100))
             setSys(c, Settings.System.SCREEN_OFF_TIMEOUT, p.timeout)
+            lg("> haptics and touch sounds: off")
             setSys(c, Settings.System.HAPTIC_FEEDBACK_ENABLED, 0)
             setSys(c, Settings.System.SOUND_EFFECTS_ENABLED, 0)
-        }
-        ContentResolver.setMasterSyncAutomatically(p.sync)
-        if (p.btOff) bt(false)
-        val n = clean(c)
+        } else lg("[skip] display tweaks need System settings control")
+        ContentResolver.setMasterSyncAutomatically(p.sync); lg("> auto-sync: " + (if (p.sync) "on" else "off"))
+        if (p.btOff && prefs(c).getBoolean("btoff", true)) { bt(false); lg("> bluetooth: off") }
+        lg("> asking background apps to stop (idle ones ignore this)")
+        val n = clean(c, lg)
         if (canDeep(c)) {
-            if (p.lvl == 2) g(c, "low_power", "1")
+            lg("> deep mode: scan limits and animations")
+            if (p.lvl == 2) { g(c, "low_power", "1"); lg("> system Battery Saver: on") }
             anim(c, if (p.lvl == 2) "0.3" else "0.5")
             g(c, "wifi_scan_always_enabled", "0"); g(c, "ble_scan_always_enabled", "0")
-        }
-        return (if (w) "" else "Grant system settings control for display tweaks. ") + "${p.name} applied, $n apps cleaned"
+        } else lg("[skip] deep mode not granted (needs one adb grant)")
+        lg("[ok] ${p.name} applied, stop request sent to $n apps")
+        return (if (w) "" else "Grant system settings control for display tweaks. ") + "${p.name} applied, $n apps signalled"
     }
 
     fun log(c: Context) {
@@ -165,7 +170,7 @@ class OptJob : JobService() {
             val lvl = b?.getIntExtra(BatteryManager.EXTRA_LEVEL, 100) ?: 100
             val chg = Opt.charging(b)
             var note = ""
-            if (!(c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive) note = "Cleaned ${Opt.clean(c)} apps"
+            if (pr.getBoolean("cleanoff", true) && !(c.getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive) note = "Stop request sent to ${Opt.clean(c)} apps"
             val th = pr.getInt("th", 20) + (if (pr.getInt("hp", 100) < 80) 10 else 0)
             val want = if (chg) 0 else if (lvl <= th) 2 else if (lvl <= th + 15) 1 else 0
             if (want != pr.getInt("stage", 0)) { Opt.apply(c, Opt.profs[want]); pr.edit().putInt("stage", want).apply(); note = Opt.profs[want].name + " at $lvl%" }

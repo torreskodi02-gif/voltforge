@@ -32,10 +32,10 @@ class Ring(c: Context) : View(c) {
 }
 
 object Hl {
-    class H(val pct: Int, val full: Int, val cyc: Int, val src: String, val remain: Int, val des: Int)
+    class H(val pct: Int, val full: Int, val cyc: Int, val src: String, val remain: Int, val des: Int, val conf: String)
 
     private fun rd(n: String): Long? {
-        for (d in listOf("battery", "bms")) try { return File("/sys/class/power_supply/$d/$n").readText().trim().toLong() } catch (e: Exception) {}
+        for (d in listOf("battery", "bms", "Battery", "main")) try { return File("/sys/class/power_supply/$d/$n").readText().trim().toLong() } catch (e: Exception) {}
         return null
     }
 
@@ -54,8 +54,9 @@ object Hl {
         var src = "fuel gauge"; var full: Int
         if (gf != null) full = gf
         else if (remain != null && lvl in 8..100) { full = remain * 100 / lvl; src = "estimated" }
-        else return H(-1, dsg, cyc, "unavailable", dsg * lvl / 100, dsg)
+        else return H(-1, dsg, cyc, "unavailable", dsg * lvl / 100, dsg, "none")
         var pct = (full * 100 / d).coerceIn(0, 100)
+        var n = 0
         if (src == "estimated") {
             val p = Opt.prefs(c); val now = System.currentTimeMillis()
             val l = p.getString("hest", "")!!.split(",").filter { it.isNotEmpty() }.map { it.toInt() }.toMutableList()
@@ -63,9 +64,10 @@ object Hl {
                 l.add(pct); while (l.size > 12) l.removeAt(0)
                 p.edit().putString("hest", l.joinToString(",")).putLong("hts", now).apply()
             }
+            n = l.size
             if (l.size >= 3) { pct = l.sorted()[l.size / 2]; full = d * pct / 100; src = "estimated, averaged" }
         }
-        return H(pct, full, cyc, src, remain ?: (full * lvl / 100), d)
+        return H(pct, full, cyc, src, remain ?: (full * lvl / 100), d, if (src == "fuel gauge") "high" else if (n >= 6) "medium" else "low")
     }
 
     fun verdict(p: Int) = if (p >= 90) "Excellent" else if (p >= 80) "Good" else if (p >= 70) "Worn" else if (p >= 60) "Weak" else "Replace soon"

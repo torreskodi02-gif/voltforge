@@ -14,6 +14,8 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
@@ -122,7 +124,7 @@ class MainActivity : Activity() {
         val rg = LinearLayout(this)
         rg.addView(a, LinearLayout.LayoutParams(0, -2, 1f)); rg.addView(b, LinearLayout.LayoutParams(0, -2, 1f))
         val v = ArrayList<View>(); v.add(rg)
-        if (h.pct >= 0) v.add(t("${Hl.verdict(h.pct)} · about ${h.full} of ${h.des} mAh (${h.src})", 14f, Color.WHITE, true))
+        if (h.pct >= 0) v.add(t("${Hl.verdict(h.pct)} · about ${h.full} of ${h.des} mAh (${h.src}, ${h.conf} confidence)", 14f, Color.WHITE, true))
         else v.add(t("This phone doesn't report charge data, so estimates use ${h.des} mAh.", 13f, Color.LTGRAY))
         if (h.cyc > 0) v.add(t("Charge cycles: ${h.cyc}", 13f, Color.LTGRAY))
         v.add(t("${temp}°C · $ma mA now" + (if (rt != null) " · average drain %.1f%%/h".format(rt) else ""), 13f, Color.LTGRAY))
@@ -132,6 +134,7 @@ class MainActivity : Activity() {
             v.add(btn("Design capacity: ${h.des} mAh (tap to change)") { val o = listOf(3000, 3500, 4000, 5000); p.edit().putInt("design", o[(o.indexOf(dsg) + 1) % 4]).putString("hest", "").apply(); draw() })
         }
         card("BATTERY", *v.toTypedArray())
+        optCard()
         val sc = Hl.scen(h, ma, chg); val mx = sc.maxOf { it.second }
         card("TIME LEFT ON THIS CHARGE", *(sc.map { rowBar(it.first, it.second, mx) } + t("Estimates use typical power draw for a phone like yours and your measured capacity. Real use varies.", 11f, Color.GRAY)).toTypedArray())
     }
@@ -167,6 +170,58 @@ class MainActivity : Activity() {
         card("UPDATES", *v.toTypedArray())
     }
 
+    private fun optCard() {
+        val b = Button(this)
+        b.text = "⚡  Optimize automatically"; b.setAllCaps(false); b.textSize = 17f; b.setTextColor(Color.parseColor("#04141C"))
+        b.setTypeface(b.typeface, Typeface.BOLD); b.setPadding(dp(16), dp(18), dp(16), dp(18))
+        val g = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.parseColor("#7DD3FC"), Color.parseColor("#4ADE80")))
+        g.cornerRadius = dp(28).toFloat(); b.background = g; b.setOnClickListener { termRun() }
+        val lp = LinearLayout.LayoutParams(-1, -2); lp.setMargins(0, 0, 0, dp(12)); box.addView(b, lp)
+    }
+
+    private fun settingsCard() {
+        val p = Opt.prefs(this)
+        card("SETTINGS",
+            sw("Turn Bluetooth off in Extreme", p.getBoolean("btoff", true)) { p.edit().putBoolean("btoff", it).apply() },
+            sw("Clean apps while the screen is off", p.getBoolean("cleanoff", true)) { p.edit().putBoolean("cleanoff", it).apply() },
+            btn("Design capacity: ${p.getInt("design", 3000)} mAh (tap to change)") {
+                val o = listOf(3000, 3500, 4000, 5000); p.edit().putInt("design", o[(o.indexOf(p.getInt("design", 3000)) + 1) % 4]).putString("hest", "").apply(); draw()
+            },
+            btn("Restore my original settings") { toast(Opt.apply(this, Opt.profs[0])); draw() })
+    }
+
+    private fun termRun() {
+        val d = android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar_Fullscreen)
+        val tv = TextView(this); tv.typeface = Typeface.MONOSPACE; tv.textSize = 12f
+        tv.setTextColor(Color.parseColor("#39FF6A")); tv.setPadding(dp(14), dp(36), dp(14), dp(14))
+        val sc = ScrollView(this); sc.setBackgroundColor(Color.BLACK); sc.addView(tv)
+        val h = Handler(Looper.getMainLooper()); var busy = false
+        val lg: (String) -> Unit = { s ->
+            Thread.sleep(if (s.startsWith("  ")) 25L else 140L)
+            h.post { tv.append(s + "\n"); sc.post { sc.fullScroll(View.FOCUS_DOWN) } }
+        }
+        fun runP(p: Prof, why: String) {
+            if (busy) return
+            busy = true
+            Thread {
+                lg("VoltForge ${Upd.name(this)}"); lg("$ voltforge --${p.name.lowercase()}"); lg(why)
+                lg("[done] " + Opt.apply(this, p, lg)); lg("$ _"); busy = false
+            }.start()
+        }
+        val lvl = Opt.batt(this)?.getIntExtra(BatteryManager.EXTRA_LEVEL, 50) ?: 50
+        val hp = Opt.prefs(this).getInt("hp", 100)
+        val prof = if (lvl <= 35 || hp < 75) Opt.profs[2] else Opt.profs[1]
+        val why = "[scan] battery $lvl% | health $hp% | plan: ${prof.name.uppercase()} (" + (if (lvl <= 35) "charge is low" else if (hp < 75) "worn battery" else "normal conditions") + ")"
+        val bar = LinearLayout(this); bar.setBackgroundColor(Color.BLACK); bar.setPadding(dp(10), dp(6), dp(10), dp(14))
+        val l1 = LinearLayout.LayoutParams(0, -2, 1f); l1.setMargins(dp(4), 0, dp(4), 0)
+        bar.addView(btn("Close") { d.dismiss(); draw() }, l1)
+        bar.addView(btn("Undo", true) { runP(Opt.profs[0], "[undo] restoring saved settings") }, LinearLayout.LayoutParams(l1))
+        val root = LinearLayout(this); root.orientation = LinearLayout.VERTICAL; root.setBackgroundColor(Color.BLACK)
+        root.addView(sc, LinearLayout.LayoutParams(-1, 0, 1f)); root.addView(bar, LinearLayout.LayoutParams(-1, -2))
+        d.setContentView(root); d.show()
+        runP(prof, why)
+    }
+
     private fun draw() {
         box.removeAllViews()
         box.addView(t("VoltForge", 30f, Color.WHITE, true))
@@ -181,7 +236,6 @@ class MainActivity : Activity() {
         if (ma > 20000) ma /= 1000
         val rt = Opt.rate(this)
         hero(lvl, Opt.charging(bi), temp, ma, rt)
-        updCard()
         card("AUTO-OPTIMIZE",
             sw("Auto Optimize", p.getBoolean("auto", false)) { p.edit().putBoolean("auto", it).apply() },
             t("Runs about every 15 min. Screen off: cleans background apps. At ${p.getInt("th", 20) + 15}% or less: Saver. At ${p.getInt("th", 20)}% or less: Extreme. Back to normal when charging." + (if (p.getInt("hp", 100) < 80) " Your battery is worn, so these levels are raised by 10%." else "") + (p.getString("last", null)?.let { "\nLast action: $it" } ?: ""), 12f, Color.GRAY),
@@ -189,8 +243,9 @@ class MainActivity : Activity() {
                 val n = listOf(10, 15, 20, 30); p.edit().putInt("th", n[(n.indexOf(p.getInt("th", 20)) + 1) % 4]).apply(); draw()
             },
             btn("Protected apps") { keepDialog() },
-            btn("Clean background apps now") { toast("Cleaned ${Opt.clean(this)} apps") })
+            btn("Clean background apps now") { toast("Stop request sent to ${Opt.clean(this)} apps") })
 
+        settingsCard()
         val w = Opt.canWrite(this); val u = Opt.canUsage(this); val dpm = Opt.canDeep(this)
         card("POWER-UPS",
             row("System settings control", w) { go(Settings.ACTION_MANAGE_WRITE_SETTINGS, true) },
@@ -247,6 +302,7 @@ class MainActivity : Activity() {
         tip("Find background hogs", "Open battery usage and look for apps with high background time.", "Open battery usage") { go(Intent.ACTION_POWER_USAGE_SUMMARY) }
         card("SUGGESTIONS", *sg.toTypedArray())
 
+        updCard()
         val tp = Opt.top(this)
         card("TOP APPS TODAY", *(if (!u) listOf(t("Grant usage access above to see which apps use the screen most.", 12f, Color.GRAY))
             else if (tp.isEmpty()) listOf(t("Nothing yet.", 12f, Color.GRAY))
